@@ -29,64 +29,68 @@ THE SOFTWARE.
 
 namespace ELFIO {
 
+//------------------------------------------------------------------------------
+template <class S> class string_section_accessor_template
+{
+  public:
     //------------------------------------------------------------------------------
-    template<class S>
-    class string_section_accessor_template {
-    public:
-        //------------------------------------------------------------------------------
-        explicit string_section_accessor_template(S *section)
-            : string_section(section) {
-        }
+    explicit string_section_accessor_template( S* section )
+        : string_section( section )
+    {
+    }
 
-        //------------------------------------------------------------------------------
-        const char *get_string(Elf_Word index) const {
-            if (string_section) {
-                const char *data = string_section->get_data();
-                if (index < string_section->get_size() && nullptr != data) {
-                    size_t string_length =
-                            strnlen(data + index, string_section->get_size() - index);
-                    if (string_length < (string_section->get_size() - index))
-                        return data + index;
-                }
+    //------------------------------------------------------------------------------
+    const char* get_string( Elf_Word index ) const
+    {
+        if ( string_section ) {
+            const char* data = string_section->get_data();
+            if ( index < string_section->get_size() && nullptr != data ) {
+                size_t string_length =
+                    strnlen( data + index, string_section->get_size() - index );
+                if ( string_length < ( string_section->get_size() - index ) )
+                    return data + index;
             }
-
-            return nullptr;
         }
 
-        //------------------------------------------------------------------------------
-        Elf_Word add_string(const char *str) {
-            Elf_Word current_position = 0;
+        return nullptr;
+    }
 
-            if (string_section) {
-                // Strings are addeded to the end of the current section data
-                current_position =
-                        static_cast<Elf_Word>(string_section->get_size());
+    //------------------------------------------------------------------------------
+    Elf_Word add_string( const char* str )
+    {
+        Elf_Word current_position = 0;
 
-                if (current_position == 0) {
-                    char empty_string = '\0';
-                    string_section->append_data(&empty_string, 1);
-                    current_position++;
-                }
-                string_section->append_data(
-                        str, static_cast<Elf_Word>(std::strlen(str) + 1));
+        if ( string_section ) {
+            // Strings are addeded to the end of the current section data
+            current_position =
+                static_cast<Elf_Word>( string_section->get_size() );
+
+            if ( current_position == 0 ) {
+                char empty_string = '\0';
+                string_section->append_data( &empty_string, 1 );
+                current_position++;
             }
-
-            return current_position;
+            string_section->append_data(
+                str, static_cast<Elf_Word>( std::strlen( str ) + 1 ) );
         }
 
-        //------------------------------------------------------------------------------
-        Elf_Word add_string(const std::string &str) {
-            return add_string(str.c_str());
-        }
+        return current_position;
+    }
 
-        //------------------------------------------------------------------------------
-    private:
-        S *string_section;
-    };
+    //------------------------------------------------------------------------------
+    Elf_Word add_string( const std::string& str )
+    {
+        return add_string( str.c_str() );
+    }
 
-    using string_section_accessor = string_section_accessor_template<section>;
-    using const_string_section_accessor =
-            string_section_accessor_template<const section>;
+    //------------------------------------------------------------------------------
+  private:
+    S* string_section;
+};
+
+using string_section_accessor = string_section_accessor_template<section>;
+using const_string_section_accessor =
+    string_section_accessor_template<const section>;
 
 } // namespace ELFIO
 

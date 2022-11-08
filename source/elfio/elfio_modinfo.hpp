@@ -28,91 +28,96 @@ THE SOFTWARE.
 
 namespace ELFIO {
 
+//------------------------------------------------------------------------------
+template <class S> class modinfo_section_accessor_template
+{
+  public:
     //------------------------------------------------------------------------------
-    template<class S>
-    class modinfo_section_accessor_template {
-    public:
-        //------------------------------------------------------------------------------
-        explicit modinfo_section_accessor_template(S *section)
-            : modinfo_section(section) {
-            process_section();
+    explicit modinfo_section_accessor_template( S* section )
+        : modinfo_section( section )
+    {
+        process_section();
+    }
+
+    //------------------------------------------------------------------------------
+    Elf_Word get_attribute_num() const { return (Elf_Word)content.size(); }
+
+    //------------------------------------------------------------------------------
+    bool
+    get_attribute( Elf_Word no, std::string& field, std::string& value ) const
+    {
+        if ( no < content.size() ) {
+            field = content[no].first;
+            value = content[no].second;
+            return true;
         }
 
-        //------------------------------------------------------------------------------
-        Elf_Word get_attribute_num() const { return (Elf_Word) content.size(); }
+        return false;
+    }
 
-        //------------------------------------------------------------------------------
-        bool
-        get_attribute(Elf_Word no, std::string &field, std::string &value) const {
-            if (no < content.size()) {
-                field = content[no].first;
-                value = content[no].second;
+    //------------------------------------------------------------------------------
+    bool get_attribute( const std::string& field_name,
+                        std::string&       value ) const
+    {
+        for ( auto& i : content ) {
+            if ( field_name == i.first ) {
+                value = i.second;
                 return true;
             }
-
-            return false;
         }
 
-        //------------------------------------------------------------------------------
-        bool get_attribute(const std::string &field_name,
-                           std::string &value) const {
-            for (auto &i : content) {
-                if (field_name == i.first) {
-                    value = i.second;
-                    return true;
-                }
-            }
+        return false;
+    }
 
-            return false;
+    //------------------------------------------------------------------------------
+    Elf_Word add_attribute( const std::string& field, const std::string& value )
+    {
+        Elf_Word current_position = 0;
+
+        if ( modinfo_section ) {
+            // Strings are addeded to the end of the current section data
+            current_position = (Elf_Word)modinfo_section->get_size();
+
+            std::string attribute = field + "=" + value;
+
+            modinfo_section->append_data( attribute + '\0' );
+            content.emplace_back( field, value );
         }
 
-        //------------------------------------------------------------------------------
-        Elf_Word add_attribute(const std::string &field, const std::string &value) {
-            Elf_Word current_position = 0;
+        return current_position;
+    }
 
-            if (modinfo_section) {
-                // Strings are addeded to the end of the current section data
-                current_position = (Elf_Word) modinfo_section->get_size();
+    //------------------------------------------------------------------------------
+  private:
+    void process_section()
+    {
+        const char* pdata = modinfo_section->get_data();
+        if ( pdata ) {
+            ELFIO::Elf_Xword i = 0;
+            while ( i < modinfo_section->get_size() ) {
+                while ( i < modinfo_section->get_size() && !pdata[i] )
+                    i++;
+                if ( i < modinfo_section->get_size() ) {
+                    std::string info = pdata + i;
+                    size_t      loc  = info.find( '=' );
+                    content.emplace_back( info.substr( 0, loc ),
+                                          info.substr( loc + 1 ) );
 
-                std::string attribute = field + "=" + value;
-
-                modinfo_section->append_data(attribute + '\0');
-                content.emplace_back(field, value);
-            }
-
-            return current_position;
-        }
-
-        //------------------------------------------------------------------------------
-    private:
-        void process_section() {
-            const char *pdata = modinfo_section->get_data();
-            if (pdata) {
-                ELFIO::Elf_Xword i = 0;
-                while (i < modinfo_section->get_size()) {
-                    while (i < modinfo_section->get_size() && !pdata[i])
-                        i++;
-                    if (i < modinfo_section->get_size()) {
-                        std::string info = pdata + i;
-                        size_t loc       = info.find('=');
-                        content.emplace_back(info.substr(0, loc),
-                                             info.substr(loc + 1));
-
-                        i += info.length();
-                    }
+                    i += info.length();
                 }
             }
         }
+    }
 
-        //------------------------------------------------------------------------------
-    private:
-        S *modinfo_section;
-        std::vector<std::pair<std::string, std::string>> content;
-    };
+    //------------------------------------------------------------------------------
+  private:
+    S*                                               modinfo_section;
+    std::vector<std::pair<std::string, std::string>> content;
+};
 
-    using modinfo_section_accessor = modinfo_section_accessor_template<section>;
-    using const_modinfo_section_accessor =
-            modinfo_section_accessor_template<const section>;
+using modinfo_section_accessor = modinfo_section_accessor_template<section>;
+using const_modinfo_section_accessor =
+    modinfo_section_accessor_template<const section>;
 
 } // namespace ELFIO
 

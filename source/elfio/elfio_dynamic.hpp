@@ -27,235 +27,247 @@ THE SOFTWARE.
 
 namespace ELFIO {
 
+//------------------------------------------------------------------------------
+template <class S> class dynamic_section_accessor_template
+{
+  public:
     //------------------------------------------------------------------------------
-    template<class S>
-    class dynamic_section_accessor_template {
-    public:
-        //------------------------------------------------------------------------------
-        explicit dynamic_section_accessor_template(const elfio &elf_file,
-                                                   S *section)
-            : elf_file(elf_file), dynamic_section(section), entries_num(0) {
+    explicit dynamic_section_accessor_template( const elfio& elf_file,
+                                                S*           section )
+        : elf_file( elf_file ), dynamic_section( section ), entries_num( 0 )
+    {
+    }
+
+    //------------------------------------------------------------------------------
+    Elf_Xword get_entries_num() const
+    {
+        size_t needed_entry_size = -1;
+        if ( elf_file.get_class() == ELFCLASS32 ) {
+            needed_entry_size = sizeof( Elf32_Dyn );
+        }
+        else {
+            needed_entry_size = sizeof( Elf64_Dyn );
         }
 
-        //------------------------------------------------------------------------------
-        Elf_Xword get_entries_num() const {
-            size_t needed_entry_size = -1;
-            if (elf_file.get_class() == ELFCLASS32) {
-                needed_entry_size = sizeof(Elf32_Dyn);
-            } else {
-                needed_entry_size = sizeof(Elf64_Dyn);
+        if ( ( 0 == entries_num ) &&
+             ( 0 != dynamic_section->get_entry_size() &&
+               dynamic_section->get_entry_size() >= needed_entry_size ) ) {
+            entries_num =
+                dynamic_section->get_size() / dynamic_section->get_entry_size();
+            Elf_Xword   i;
+            Elf_Xword   tag   = DT_NULL;
+            Elf_Xword   value = 0;
+            std::string str;
+            for ( i = 0; i < entries_num; i++ ) {
+                get_entry( i, tag, value, str );
+                if ( tag == DT_NULL )
+                    break;
             }
-
-            if ((0 == entries_num) &&
-                (0 != dynamic_section->get_entry_size() &&
-                 dynamic_section->get_entry_size() >= needed_entry_size)) {
-                entries_num =
-                        dynamic_section->get_size() / dynamic_section->get_entry_size();
-                Elf_Xword i;
-                Elf_Xword tag   = DT_NULL;
-                Elf_Xword value = 0;
-                std::string str;
-                for (i = 0; i < entries_num; i++) {
-                    get_entry(i, tag, value, str);
-                    if (tag == DT_NULL)
-                        break;
-                }
-                entries_num = std::min<Elf_Xword>(entries_num, i + 1);
-            }
-
-            return entries_num;
+            entries_num = std::min<Elf_Xword>( entries_num, i + 1 );
         }
 
-        //------------------------------------------------------------------------------
-        bool get_entry(Elf_Xword index,
-                       Elf_Xword &tag,
-                       Elf_Xword &value,
-                       std::string &str) const {
-            if (index >= get_entries_num()) { // Is index valid
+        return entries_num;
+    }
+
+    //------------------------------------------------------------------------------
+    bool get_entry( Elf_Xword    index,
+                    Elf_Xword&   tag,
+                    Elf_Xword&   value,
+                    std::string& str ) const
+    {
+        if ( index >= get_entries_num() ) { // Is index valid
+            return false;
+        }
+
+        if ( elf_file.get_class() == ELFCLASS32 ) {
+            generic_get_entry_dyn<Elf32_Dyn>( index, tag, value );
+        }
+        else {
+            generic_get_entry_dyn<Elf64_Dyn>( index, tag, value );
+        }
+
+        // If the tag has a string table reference - prepare the string
+        if ( tag == DT_NEEDED || tag == DT_SONAME || tag == DT_RPATH ||
+             tag == DT_RUNPATH ) {
+            string_section_accessor strsec(
+                elf_file.sections[get_string_table_index()] );
+            const char* result = strsec.get_string( (Elf_Word)value );
+            if ( nullptr == result ) {
+                str.clear();
                 return false;
             }
-
-            if (elf_file.get_class() == ELFCLASS32) {
-                generic_get_entry_dyn<Elf32_Dyn>(index, tag, value);
-            } else {
-                generic_get_entry_dyn<Elf64_Dyn>(index, tag, value);
-            }
-
-            // If the tag has a string table reference - prepare the string
-            if (tag == DT_NEEDED || tag == DT_SONAME || tag == DT_RPATH ||
-                tag == DT_RUNPATH) {
-                string_section_accessor strsec(
-                        elf_file.sections[get_string_table_index()]);
-                const char *result = strsec.get_string((Elf_Word) value);
-                if (nullptr == result) {
-                    str.clear();
-                    return false;
-                }
-                str = result;
-            } else {
-                str.clear();
-            }
-
-            return true;
+            str = result;
+        }
+        else {
+            str.clear();
         }
 
-        //------------------------------------------------------------------------------
-        void add_entry(Elf_Xword tag, Elf_Xword value) {
-            if (elf_file.get_class() == ELFCLASS32) {
-                generic_add_entry_dyn<Elf32_Dyn>(tag, value);
-            } else {
-                generic_add_entry_dyn<Elf64_Dyn>(tag, value);
-            }
+        return true;
+    }
+
+    //------------------------------------------------------------------------------
+    void add_entry( Elf_Xword tag, Elf_Xword value )
+    {
+        if ( elf_file.get_class() == ELFCLASS32 ) {
+            generic_add_entry_dyn<Elf32_Dyn>( tag, value );
+        }
+        else {
+            generic_add_entry_dyn<Elf64_Dyn>( tag, value );
+        }
+    }
+
+    //------------------------------------------------------------------------------
+    void add_entry( Elf_Xword tag, const std::string& str )
+    {
+        string_section_accessor strsec(
+            elf_file.sections[get_string_table_index()] );
+        Elf_Xword value = strsec.add_string( str );
+        add_entry( tag, value );
+    }
+
+    //------------------------------------------------------------------------------
+  private:
+    //------------------------------------------------------------------------------
+    Elf_Half get_string_table_index() const
+    {
+        return (Elf_Half)dynamic_section->get_link();
+    }
+
+    //------------------------------------------------------------------------------
+    template <class T>
+    void generic_get_entry_dyn( Elf_Xword  index,
+                                Elf_Xword& tag,
+                                Elf_Xword& value ) const
+    {
+        const endianess_convertor& convertor = elf_file.get_convertor();
+
+        // Check unusual case when dynamic section has no data
+        if ( dynamic_section->get_data() == nullptr ||
+             ( index + 1 ) * dynamic_section->get_entry_size() >
+                 dynamic_section->get_size() ||
+             dynamic_section->get_entry_size() < sizeof( T ) ) {
+            tag   = DT_NULL;
+            value = 0;
+            return;
         }
 
-        //------------------------------------------------------------------------------
-        void add_entry(Elf_Xword tag, const std::string &str) {
-            string_section_accessor strsec(
-                    elf_file.sections[get_string_table_index()]);
-            Elf_Xword value = strsec.add_string(str);
-            add_entry(tag, value);
+        const T* pEntry = reinterpret_cast<const T*>(
+            dynamic_section->get_data() +
+            index * dynamic_section->get_entry_size() );
+        tag = convertor( pEntry->d_tag );
+        switch ( tag ) {
+        case DT_NULL:
+        case DT_SYMBOLIC:
+        case DT_TEXTREL:
+        case DT_BIND_NOW:
+            value = 0;
+            break;
+        case DT_NEEDED:
+        case DT_PLTRELSZ:
+        case DT_RELASZ:
+        case DT_RELAENT:
+        case DT_STRSZ:
+        case DT_SYMENT:
+        case DT_SONAME:
+        case DT_RPATH:
+        case DT_RELSZ:
+        case DT_RELENT:
+        case DT_PLTREL:
+        case DT_INIT_ARRAYSZ:
+        case DT_FINI_ARRAYSZ:
+        case DT_RUNPATH:
+        case DT_FLAGS:
+        case DT_PREINIT_ARRAYSZ:
+            value = convertor( pEntry->d_un.d_val );
+            break;
+        case DT_PLTGOT:
+        case DT_HASH:
+        case DT_STRTAB:
+        case DT_SYMTAB:
+        case DT_RELA:
+        case DT_INIT:
+        case DT_FINI:
+        case DT_REL:
+        case DT_DEBUG:
+        case DT_JMPREL:
+        case DT_INIT_ARRAY:
+        case DT_FINI_ARRAY:
+        case DT_PREINIT_ARRAY:
+        default:
+            value = convertor( pEntry->d_un.d_ptr );
+            break;
+        }
+    }
+
+    //------------------------------------------------------------------------------
+    template <class T>
+    void generic_add_entry_dyn( Elf_Xword tag, Elf_Xword value )
+    {
+        const endianess_convertor& convertor = elf_file.get_convertor();
+
+        T entry;
+
+        switch ( tag ) {
+        case DT_NULL:
+        case DT_SYMBOLIC:
+        case DT_TEXTREL:
+        case DT_BIND_NOW:
+            entry.d_un.d_val = convertor( decltype( entry.d_un.d_val )( 0 ) );
+            break;
+        case DT_NEEDED:
+        case DT_PLTRELSZ:
+        case DT_RELASZ:
+        case DT_RELAENT:
+        case DT_STRSZ:
+        case DT_SYMENT:
+        case DT_SONAME:
+        case DT_RPATH:
+        case DT_RELSZ:
+        case DT_RELENT:
+        case DT_PLTREL:
+        case DT_INIT_ARRAYSZ:
+        case DT_FINI_ARRAYSZ:
+        case DT_RUNPATH:
+        case DT_FLAGS:
+        case DT_PREINIT_ARRAYSZ:
+            entry.d_un.d_val =
+                convertor( decltype( entry.d_un.d_val )( value ) );
+            break;
+        case DT_PLTGOT:
+        case DT_HASH:
+        case DT_STRTAB:
+        case DT_SYMTAB:
+        case DT_RELA:
+        case DT_INIT:
+        case DT_FINI:
+        case DT_REL:
+        case DT_DEBUG:
+        case DT_JMPREL:
+        case DT_INIT_ARRAY:
+        case DT_FINI_ARRAY:
+        case DT_PREINIT_ARRAY:
+        default:
+            entry.d_un.d_ptr =
+                convertor( decltype( entry.d_un.d_val )( value ) );
+            break;
         }
 
-        //------------------------------------------------------------------------------
-    private:
-        //------------------------------------------------------------------------------
-        Elf_Half get_string_table_index() const {
-            return (Elf_Half) dynamic_section->get_link();
-        }
+        entry.d_tag = convertor( decltype( entry.d_tag )( tag ) );
 
-        //------------------------------------------------------------------------------
-        template<class T>
-        void generic_get_entry_dyn(Elf_Xword index,
-                                   Elf_Xword &tag,
-                                   Elf_Xword &value) const {
-            const endianess_convertor &convertor = elf_file.get_convertor();
+        dynamic_section->append_data( reinterpret_cast<char*>( &entry ),
+                                      sizeof( entry ) );
+    }
 
-            // Check unusual case when dynamic section has no data
-            if (dynamic_section->get_data() == nullptr ||
-                (index + 1) * dynamic_section->get_entry_size() >
-                        dynamic_section->get_size() ||
-                dynamic_section->get_entry_size() < sizeof(T)) {
-                tag   = DT_NULL;
-                value = 0;
-                return;
-            }
+    //------------------------------------------------------------------------------
+  private:
+    const elfio&      elf_file;
+    S*                dynamic_section;
+    mutable Elf_Xword entries_num;
+};
 
-            const T *pEntry = reinterpret_cast<const T *>(
-                    dynamic_section->get_data() +
-                    index * dynamic_section->get_entry_size());
-            tag = convertor(pEntry->d_tag);
-            switch (tag) {
-                case DT_NULL:
-                case DT_SYMBOLIC:
-                case DT_TEXTREL:
-                case DT_BIND_NOW:
-                    value = 0;
-                    break;
-                case DT_NEEDED:
-                case DT_PLTRELSZ:
-                case DT_RELASZ:
-                case DT_RELAENT:
-                case DT_STRSZ:
-                case DT_SYMENT:
-                case DT_SONAME:
-                case DT_RPATH:
-                case DT_RELSZ:
-                case DT_RELENT:
-                case DT_PLTREL:
-                case DT_INIT_ARRAYSZ:
-                case DT_FINI_ARRAYSZ:
-                case DT_RUNPATH:
-                case DT_FLAGS:
-                case DT_PREINIT_ARRAYSZ:
-                    value = convertor(pEntry->d_un.d_val);
-                    break;
-                case DT_PLTGOT:
-                case DT_HASH:
-                case DT_STRTAB:
-                case DT_SYMTAB:
-                case DT_RELA:
-                case DT_INIT:
-                case DT_FINI:
-                case DT_REL:
-                case DT_DEBUG:
-                case DT_JMPREL:
-                case DT_INIT_ARRAY:
-                case DT_FINI_ARRAY:
-                case DT_PREINIT_ARRAY:
-                default:
-                    value = convertor(pEntry->d_un.d_ptr);
-                    break;
-            }
-        }
-
-        //------------------------------------------------------------------------------
-        template<class T>
-        void generic_add_entry_dyn(Elf_Xword tag, Elf_Xword value) {
-            const endianess_convertor &convertor = elf_file.get_convertor();
-
-            T entry;
-
-            switch (tag) {
-                case DT_NULL:
-                case DT_SYMBOLIC:
-                case DT_TEXTREL:
-                case DT_BIND_NOW:
-                    entry.d_un.d_val = convertor(decltype(entry.d_un.d_val)(0));
-                    break;
-                case DT_NEEDED:
-                case DT_PLTRELSZ:
-                case DT_RELASZ:
-                case DT_RELAENT:
-                case DT_STRSZ:
-                case DT_SYMENT:
-                case DT_SONAME:
-                case DT_RPATH:
-                case DT_RELSZ:
-                case DT_RELENT:
-                case DT_PLTREL:
-                case DT_INIT_ARRAYSZ:
-                case DT_FINI_ARRAYSZ:
-                case DT_RUNPATH:
-                case DT_FLAGS:
-                case DT_PREINIT_ARRAYSZ:
-                    entry.d_un.d_val =
-                            convertor(decltype(entry.d_un.d_val)(value));
-                    break;
-                case DT_PLTGOT:
-                case DT_HASH:
-                case DT_STRTAB:
-                case DT_SYMTAB:
-                case DT_RELA:
-                case DT_INIT:
-                case DT_FINI:
-                case DT_REL:
-                case DT_DEBUG:
-                case DT_JMPREL:
-                case DT_INIT_ARRAY:
-                case DT_FINI_ARRAY:
-                case DT_PREINIT_ARRAY:
-                default:
-                    entry.d_un.d_ptr =
-                            convertor(decltype(entry.d_un.d_val)(value));
-                    break;
-            }
-
-            entry.d_tag = convertor(decltype(entry.d_tag)(tag));
-
-            dynamic_section->append_data(reinterpret_cast<char *>(&entry),
-                                         sizeof(entry));
-        }
-
-        //------------------------------------------------------------------------------
-    private:
-        const elfio &elf_file;
-        S *dynamic_section;
-        mutable Elf_Xword entries_num;
-    };
-
-    using dynamic_section_accessor = dynamic_section_accessor_template<section>;
-    using const_dynamic_section_accessor =
-            dynamic_section_accessor_template<const section>;
+using dynamic_section_accessor = dynamic_section_accessor_template<section>;
+using const_dynamic_section_accessor =
+    dynamic_section_accessor_template<const section>;
 
 } // namespace ELFIO
 

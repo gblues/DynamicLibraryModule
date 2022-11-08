@@ -27,57 +27,61 @@ THE SOFTWARE.
 
 namespace ELFIO {
 
+//------------------------------------------------------------------------------
+template <class S, typename T> class array_section_accessor_template
+{
+  public:
     //------------------------------------------------------------------------------
-    template<class S, typename T>
-    class array_section_accessor_template {
-    public:
-        //------------------------------------------------------------------------------
-        explicit array_section_accessor_template(const elfio &elf_file,
-                                                 S *section)
-            : elf_file(elf_file), array_section(section) {
+    explicit array_section_accessor_template( const elfio& elf_file,
+                                              S*           section )
+        : elf_file( elf_file ), array_section( section )
+    {
+    }
+
+    //------------------------------------------------------------------------------
+    Elf_Xword get_entries_num() const
+    {
+        Elf_Xword entry_size = sizeof( T );
+        return array_section->get_size() / entry_size;
+    }
+
+    //------------------------------------------------------------------------------
+    bool get_entry( Elf_Xword index, Elf64_Addr& address ) const
+    {
+        if ( index >= get_entries_num() ) { // Is index valid
+            return false;
         }
 
-        //------------------------------------------------------------------------------
-        Elf_Xword get_entries_num() const {
-            Elf_Xword entry_size = sizeof(T);
-            return array_section->get_size() / entry_size;
-        }
+        const endianess_convertor& convertor = elf_file.get_convertor();
 
-        //------------------------------------------------------------------------------
-        bool get_entry(Elf_Xword index, Elf64_Addr &address) const {
-            if (index >= get_entries_num()) { // Is index valid
-                return false;
-            }
+        const T temp = *reinterpret_cast<const T*>( array_section->get_data() +
+                                                    index * sizeof( T ) );
+        address      = convertor( temp );
 
-            const endianess_convertor &convertor = elf_file.get_convertor();
+        return true;
+    }
 
-            const T temp = *reinterpret_cast<const T *>(array_section->get_data() +
-                                                        index * sizeof(T));
-            address      = convertor(temp);
+    //------------------------------------------------------------------------------
+    void add_entry( Elf64_Addr address )
+    {
+        const endianess_convertor& convertor = elf_file.get_convertor();
 
-            return true;
-        }
+        T temp = convertor( (T)address );
+        array_section->append_data( reinterpret_cast<char*>( &temp ),
+                                    sizeof( temp ) );
+    }
 
-        //------------------------------------------------------------------------------
-        void add_entry(Elf64_Addr address) {
-            const endianess_convertor &convertor = elf_file.get_convertor();
+  private:
+    //------------------------------------------------------------------------------
+    const elfio& elf_file;
+    S*           array_section;
+};
 
-            T temp = convertor((T) address);
-            array_section->append_data(reinterpret_cast<char *>(&temp),
-                                       sizeof(temp));
-        }
-
-    private:
-        //------------------------------------------------------------------------------
-        const elfio &elf_file;
-        S *array_section;
-    };
-
-    template<typename T = Elf32_Word>
-    using array_section_accessor = array_section_accessor_template<section, T>;
-    template<typename T = Elf32_Word>
-    using const_array_section_accessor =
-            array_section_accessor_template<const section, T>;
+template <typename T = Elf32_Word>
+using array_section_accessor = array_section_accessor_template<section, T>;
+template <typename T = Elf32_Word>
+using const_array_section_accessor =
+    array_section_accessor_template<const section, T>;
 
 } // namespace ELFIO
 

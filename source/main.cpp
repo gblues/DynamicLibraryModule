@@ -15,13 +15,16 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  ****************************************************************************/
 
+#include <wums.h>
+
 #include "elfio/elfio.hpp"
 #include "library/library.h"
 #include "version.h"
 #include "wiiu_zlib.hpp"
-#include <wums.h>
+#include "dlfcn.h"
 
-#define VERSION        "v0.1"
+
+#define VERSION "v0.1"
 #define LAST_ERROR_LEN 256
 
 WUMS_MODULE_EXPORT_NAME("homebrew_dll");
